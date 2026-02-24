@@ -4,6 +4,8 @@ HiveLib is a Monte Carlo Localization (MCL) library designed to integrate cleanl
 
 The library is designed to be easy to drop into an existing codebase with minimal setup.
 
+Developed by team 70258A: Hivemind
+
 ---
 
 ## Requirements
