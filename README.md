@@ -1,6 +1,6 @@
 # HiveLib – Monte Carlo Localization for PROS + LemLib
 
-HiveLib is a lightweight Monte Carlo Localization (MCL) library designed to integrate cleanly with **PROS** and **LemLib**. It provides a probabilistic pose estimate using odometry, IMU data, and optional distance sensors, and can continuously synchronize that estimate with LemLib’s chassis pose.
+HiveLib is a Monte Carlo Localization (MCL) library designed to integrate cleanly with **PROS** and **LemLib**. It provides a probabilistic pose estimate using odometry, IMU data, and optional distance sensors, and can continuously synchronize that estimate with LemLib’s chassis pose.
 
 The library is designed to be easy to drop into an existing codebase with minimal setup.
 
@@ -117,7 +117,7 @@ These values should be tuned for your robot’s drivetrain, wheel slip, and sens
 
 ---
 
-## 3. LemLib Pose Synchronization (Optional but Recommended)
+## 3. LemLib Pose Synchronization
 
 **File:** `hivelib/mcl_sync.hpp`
 
@@ -132,10 +132,18 @@ To enable pose synchronization:
 chassis.setPose(p.x, p.y, p.theta * 180.0 / M_PI);
 ```
 
-3. Start the synchronization task:
+3. Start the synchronization task during the autonomous period:
+
+In your **File:** `main.cpp` file, specifically the `autonomous` function, add the following two functions
 
 ```cpp
-startMclPoseSync();
+void autonomous() {
+	startMclPoseSync();
+
+    // insert the rest of your normal autonomous code here
+
+	stopMclPoseSync();
+}
 ```
 
 This task typically runs at **10–20 ms** and keeps LemLib and MCL aligned in real time.
@@ -148,13 +156,13 @@ This task typically runs at **10–20 ms** and keeps LemLib and MCL aligned in r
 
 HiveLib provides a helper function to reset **both LemLib and MCL** to the same starting pose.
 
-After wiring your chassis, uncomment:
+After setting up your chassis, uncomment:
 
 ```cpp
 chassis.setPose(x, y, heading_deg);
 ```
 
-Then call at the start of autonomous:
+Then call at the start of your autonomous routine, call:
 
 ```cpp
 resetAutonPose(0, 0, 0);
@@ -164,26 +172,26 @@ This ensures that both systems start from an identical pose reference.
 
 ---
 
-## Typical Usage Flow
+## Typical Usage
 
 A common autonomous setup looks like this:
 
-1. Reset pose at the start of autonomous  
-2. Start the MCL task  
-3. *(Optional)* Start LemLib pose synchronization  
+1. Start the MCL task   
+2. Reset Pose
+3. Start LemLib pose synchronization  
 4. Run autonomous normally using LemLib motion commands  
 
+To start the main `mcl` task, include the following in your `initialize` function in `main.cpp`
+
 ```cpp
-resetAutonPose(0, 0, 0);
 mcl.start();
-startMclPoseSync();
-```
+``
 
 ---
 
 ## Notes
 
-- HiveLib does **not replace** LemLib odometry — it augments it with probabilistic state estimation.
+- HiveLib does **not replace** LemLib odometry — it adds to it with probabilistic state estimation.
 - HiveLib can be used with:
   - Vertical-only odometry
   - Horizontal + vertical odometry
