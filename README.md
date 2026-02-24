@@ -191,7 +191,7 @@ mcl.start();
 
 ## Notes
 
-- HiveLib does **not replace** LemLib odometry — it adds to it with probabilistic state estimation.
+- HiveLib does **not replace** LemLib odometry; it adds to it.
 - HiveLib can be used with:
   - Vertical-only odometry
   - Horizontal + vertical odometry
