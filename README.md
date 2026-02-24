@@ -42,7 +42,7 @@ That is all that is required to install the library.
 
 ## What You Must Configure
 
-HiveLib is intentionally flexible, so a few components must be wired to match your robot.
+HiveLib is intentionally flexible, so a few components must be altered to match your robot.
 
 ---
 
@@ -80,7 +80,7 @@ inline DistSensorMount mounts[] = {
 };
 ```
 
-If you do **not** want to use distance sensors, set the mount count to `0` in the `MonteCarloLocalizer` constructor.
+If you do **not** want to use distance sensors, set the mount count to `0` in the `MonteCarloLocalizer` constructor. This will instead only use odometry and the IMU like normal.
 
 You may also replace the locally defined `pros::Rotation` and `pros::IMU` with sensors already defined in your drive system.
 
@@ -134,7 +134,7 @@ chassis.setPose(p.x, p.y, p.theta * 180.0 / M_PI);
 
 3. Start the synchronization task during the autonomous period:
 
-In your **File:** `main.cpp` file, specifically the `autonomous` function, add the following two functions
+In your `main.cpp` file, specifically the `autonomous` function, add the following two functions
 
 ```cpp
 void autonomous() {
@@ -185,7 +185,7 @@ To start the main `mcl` task, include the following in your `initialize` functio
 
 ```cpp
 mcl.start();
-``
+```
 
 ---
 
