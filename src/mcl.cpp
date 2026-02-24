@@ -14,13 +14,13 @@ static double randn(double sigma) {
 }
 
 MonteCarloLocalizer::MonteCarloLocalizer(
-    pros::Rotation* vertOdomRot,
-    pros::IMU* imu,
+    pros::Rotation* rot, // you can replace this with a pre defined rotation sensor
+    pros::IMU* imu, // you can replace this with a pre defined IMU
     const DistSensorMount* mounts,
     int mountCount,
     double trackingWheelDiamIn
 )
-: m_vertRot(vertOdomRot),
+: m_vertRot(rot),
   m_imu(imu),
   m_mounts(mounts),
   m_mountCount(mountCount),

@@ -13,8 +13,7 @@ inline void startMclPoseSync() {
     while (true) {
       const auto p = mcl.getPose();
 
-      // If your MCL pose theta is radians, convert to degrees here:
-      chassis.setPose(p.x, p.y, p.theta * 180.0 / M_PI);
+      // chassis.setPose(p.x, p.y, p.theta * 180.0 / M_PI); // Replace chassis with your LemLib drive object and then uncomment
 
       pros::delay(10); // 10–20ms is fine
     }

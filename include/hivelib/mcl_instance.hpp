@@ -1,5 +1,7 @@
 #pragma once
 #include "hivelib/mcl.hpp"
+#include "api.h" // remove this if you replace the rotation and IMU sensors with pre defined variables from your drive system
+
 // #include "drive.hpp" // **Include the correct file for your drive system to get the distance sensor definitions
 
 // Distance Sensor offsets
@@ -18,9 +20,13 @@ inline DistSensorMount mounts[] = {
     */
 };
 
+
+inline pros::Rotation rot(1);
+inline pros::IMU imu(2);
+
 inline MonteCarloLocalizer mcl(
-    &vert_odom_rot, // defined rotation sensor for vertical odometry
-    &imu, // defined IMU sensor
+    &rot, // you can replace this with a pre defined rotation sensor and delete the one defined above
+    &imu, // you can replace this with a pre defined IMU and delete the ones defined above
     mounts,
     0,      // Number of distance sensors (0 means it'll just use IMU and odom)
     2.0     // tracking wheel diameter in inches
