@@ -14,13 +14,13 @@ static double randn(double sigma) {
 }
 
 MonteCarloLocalizer::MonteCarloLocalizer(
-    pros::Rotation* rot, // you can replace this with a pre defined rotation sensor
-    pros::IMU* imu, // you can replace this with a pre defined IMU
+    pros::Rotation* rot, // replace these with your defined one
+    pros::IMU* imu, // replace these with your defined one
     const DistSensorMount* mounts,
     int mountCount,
     double trackingWheelDiamIn
 )
-: m_vertRot(rot),
+: m_vertRot(vertOdomRot),
   m_imu(imu),
   m_mounts(mounts),
   m_mountCount(mountCount),
@@ -58,6 +58,10 @@ void MonteCarloLocalizer::reset(double x, double y, double thetaRad) {
     // initialize odom refs
     m_lastVertDeg = m_vertRot ? m_vertRot->get_position() : 0.0;
     m_lastImuRad = m_imu ? (m_imu->get_rotation() * M_PI / 180.0) : thetaRad;
+
+    m_meanX = x;
+    m_meanY = y;
+    m_meanTh = thetaRad;
 }
 
 lemlib::Pose MonteCarloLocalizer::getPose() const {
@@ -95,7 +99,11 @@ void MonteCarloLocalizer::loop_() {
 
         // Do measurement update at a lower rate
         tick++;
-        if (m_mountCount > 0 && (tick % mclcfg::MEAS_UPDATE_EVERY_N == 0)) {
+        const bool doMeasTick = (tick % mclcfg::MEAS_UPDATE_EVERY_N == 0);
+        const bool movedEnough = (std::fabs(ds) >= mclcfg::RESAMPLE_MIN_DS_IN) ||
+                                (std::fabs(dth) >= mclcfg::RESAMPLE_MIN_DTH_RAD);
+
+        if (m_mountCount > 0 && doMeasTick && movedEnough) {
             measurementUpdate_();
             resample_();
         }
@@ -111,14 +119,27 @@ void MonteCarloLocalizer::loop_() {
         }
         const double mth = std::atan2(s, c);
 
+        m_meanX = mx; m_meanY = my; m_meanTh = mth;
+
+        double vx = 0.0, vy = 0.0;
+        for (int i = 0; i < mclcfg::N_PARTICLES; i++) {
+            const double dx = m_particles[i].x - mx;
+            const double dy = m_particles[i].y - my;
+            vx += dx * dx * m_particles[i].w;
+            vy += dy * dy * m_particles[i].w;
+        }
+        const double stdxy = std::sqrt(vx + vy); // overall position spread in inches
+
         // Confidence heuristic: effective sample size (Neff)
         double sumsq = 0;
         for (int i = 0; i < mclcfg::N_PARTICLES; i++) sumsq += m_particles[i].w * m_particles[i].w;
         const double neff = (sumsq > 1e-9) ? (1.0 / sumsq) : 0.0;
-        const double conf = std::min(1.0, std::max(0.0, (neff / (double)mclcfg::N_PARTICLES)));
+        double conf = 1.0 - (stdxy - mclcfg::CONF_GOOD_STD_IN) / (mclcfg::CONF_BAD_STD_IN - mclcfg::CONF_GOOD_STD_IN);
+        conf = std::min(1.0, std::max(0.0, conf));
 
         m_poseMutex.take(TIMEOUT_MAX);
-        m_pose = lemlib::Pose{(float)mx, (float)my, (float)mth};
+        const double mth_deg = mth * 180.0 / M_PI;
+        m_pose = lemlib::Pose{(float)mx, (float)my, (float)mth_deg};
         m_conf = conf;
         m_poseMutex.give();
 
@@ -128,27 +149,48 @@ void MonteCarloLocalizer::loop_() {
 
 void MonteCarloLocalizer::predict_(double ds, double dth) {
     for (int i = 0; i < mclcfg::N_PARTICLES; i++) {
-        // add noise to motion
-        const double nds = ds + randn(mclcfg::SIGMA_TRANS_IN);
+        const double nds  = ds  + randn(mclcfg::SIGMA_TRANS_IN);
         const double ndth = dth + randn(mclcfg::SIGMA_THETA_RAD);
 
-        // apply in particle frame: forward motion along heading
         m_particles[i].th = wrapAngle_(m_particles[i].th + ndth);
         m_particles[i].x += nds * std::cos(m_particles[i].th);
         m_particles[i].y += nds * std::sin(m_particles[i].th);
 
-        // keep inside field (clamp)
-        m_particles[i].x = std::min(mclcfg::FIELD_MAX_X, std::max(mclcfg::FIELD_MIN_X, m_particles[i].x));
-        m_particles[i].y = std::min(mclcfg::FIELD_MAX_Y, std::max(mclcfg::FIELD_MIN_Y, m_particles[i].y));
+        const bool oob =
+            (m_particles[i].x < mclcfg::FIELD_MIN_X) || (m_particles[i].x > mclcfg::FIELD_MAX_X) ||
+            (m_particles[i].y < mclcfg::FIELD_MIN_Y) || (m_particles[i].y > mclcfg::FIELD_MAX_Y);
+
+        if (oob) {
+            m_particles[i].x  = m_meanX + randn(mclcfg::OOB_RESPAWN_XY_SIGMA_IN);
+            m_particles[i].y  = m_meanY + randn(mclcfg::OOB_RESPAWN_XY_SIGMA_IN);
+            m_particles[i].th = wrapAngle_(m_meanTh + randn(mclcfg::OOB_RESPAWN_TH_SIGMA_RAD));
+            m_particles[i].w  = 1.0 / (double)mclcfg::N_PARTICLES;
+        }
     }
 }
 
 void MonteCarloLocalizer::measurementUpdate_() {
-    // Multiply weights by likelihood of each sensor
+    // First: compute log-weights (to avoid underflow)
+    double logw[mclcfg::N_PARTICLES];
+
+    // Small epsilon to prevent log(0)
+    constexpr double EPS = 1e-12;
+
+    auto expectedFromPose = [&](double px, double py, double pth, const DistSensorMount& m, double& outExp) {
+        const double sx = px + (m.x_off * std::cos(pth) - m.y_off * std::sin(pth));
+        const double sy = py + (m.x_off * std::sin(pth) + m.y_off * std::cos(pth));
+        const double rayTh = wrapAngle_(pth + m.yaw_off);
+        return rayRectDist_(sx, sy, std::cos(rayTh), std::sin(rayTh),
+                            mclcfg::FIELD_MIN_X, mclcfg::FIELD_MIN_Y,
+                            mclcfg::FIELD_MAX_X, mclcfg::FIELD_MAX_Y, outExp);
+    };
+
     for (int i = 0; i < mclcfg::N_PARTICLES; i++) {
-        double w = m_particles[i].w;
+        double lw = 0.0;
 
         for (int k = 0; k < m_mountCount; k++) {
+
+            
             const auto& m = m_mounts[k];
             if (!m.sensor) continue;
 
@@ -156,6 +198,13 @@ void MonteCarloLocalizer::measurementUpdate_() {
             if (mm < mclcfg::DIST_MIN_MM || mm > mclcfg::DIST_MAX_MM) continue;
 
             const double z = mm / 25.4; // inches
+
+            double expMean = 0.0;
+            if (expectedFromPose(m_meanX, m_meanY, m_meanTh, m, expMean)) {
+                if (std::fabs(z - expMean) > mclcfg::DIST_GATE_IN) {
+                    continue; // likely hit a game object, ignore
+                }
+            }
 
             // sensor world origin
             const double th = m_particles[i].th;
@@ -176,17 +225,26 @@ void MonteCarloLocalizer::measurementUpdate_() {
             }
 
             const double err = (z - expected);
-            w *= gaussProb_(err, mclcfg::SIGMA_DIST_IN);
+            const double p = gaussProb_(err, mclcfg::SIGMA_DIST_IN);
+            lw += std::log(p + EPS);
         }
 
+        logw[i] = lw;
+    }
+
+    // Convert log-weights -> weights safely by subtracting max logw
+    double maxlw = logw[0];
+    for (int i = 1; i < mclcfg::N_PARTICLES; i++) maxlw = std::max(maxlw, logw[i]);
+
+    double sum = 0.0;
+    for (int i = 0; i < mclcfg::N_PARTICLES; i++) {
+        const double w = std::exp(logw[i] - maxlw);
         m_particles[i].w = w;
+        sum += w;
     }
 
     // Normalize
-    double sum = 0;
-    for (int i = 0; i < mclcfg::N_PARTICLES; i++) sum += m_particles[i].w;
     if (sum < 1e-12) {
-        // reset weights if degenerate
         const double u = 1.0 / (double)mclcfg::N_PARTICLES;
         for (int i = 0; i < mclcfg::N_PARTICLES; i++) m_particles[i].w = u;
         return;

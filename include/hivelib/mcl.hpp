@@ -4,12 +4,11 @@
 #include <algorithm>
 
 
-// ======= USER-CONFIG (you fill these in) =======
-// Field rectangle in inches (origin at bottom-left corner)
+// ======= USER-CONFIG =======
 namespace mclcfg {
     constexpr double FIELD_MIN_X = 0.0;
     constexpr double FIELD_MIN_Y = 0.0;
-    constexpr double FIELD_MAX_X = 144.0; // example: 12ft
+    constexpr double FIELD_MAX_X = 144.0;
     constexpr double FIELD_MAX_Y = 144.0;
 
     // Particle filter tuning
@@ -30,6 +29,26 @@ namespace mclcfg {
     // Update rates
     constexpr int UPDATE_MS = 10;            // PF loop rate (predict every loop)
     constexpr int MEAS_UPDATE_EVERY_N = 2;   // do distance update every N loops
+
+    // Don't resample if the robot hasn't moved at least this much since the last resample (to save processing)
+    constexpr double RESAMPLE_MIN_DS_IN = 0.75;        // inches
+    constexpr double RESAMPLE_MIN_DTH_RAD = 3.0 * M_PI / 180.0; // ~3 degrees
+
+    // Defining confidence thresholds based on spread
+    constexpr double CONF_GOOD_STD_IN = 2.0;   // ~localized
+    constexpr double CONF_BAD_STD_IN  = 18.0;  // ~lost
+
+    constexpr double DIST_GATE_IN = 10.0; // accept if within ±10"
+
+    constexpr double SIGMA_TRANS_BASE_IN = 0.10;
+    constexpr double SIGMA_TRANS_PER_IN  = 0.06;  // extra noise per inch moved
+
+    constexpr double SIGMA_THETA_BASE_RAD = 0.004;
+    constexpr double SIGMA_THETA_PER_RAD  = 0.15; // extra noise per rad turned
+
+    // Respawn spread for out-of-bounds particles
+    constexpr double OOB_RESPAWN_XY_SIGMA_IN = 6.0;
+    constexpr double OOB_RESPAWN_TH_SIGMA_RAD = 0.20;
 }
 
 // A single distance sensor mounting description
@@ -43,7 +62,7 @@ struct DistSensorMount {
 class MonteCarloLocalizer {
 public:
     explicit MonteCarloLocalizer(
-        pros::Rotation* vertOdomRot,
+        pros::Rotation* rot,
         pros::IMU* imu,
         const DistSensorMount* mounts,
         int mountCount,
@@ -92,4 +111,8 @@ private:
 
     pros::Task* m_task = nullptr;
     bool m_running = false;
+
+    double m_meanX = mclcfg::INIT_X;
+    double m_meanY = mclcfg::INIT_Y;
+    double m_meanTh = mclcfg::INIT_THETA;
 };

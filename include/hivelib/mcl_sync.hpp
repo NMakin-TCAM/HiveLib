@@ -13,9 +13,9 @@ inline void startMclPoseSync() {
     while (true) {
       const auto p = mcl.getPose();
 
-      // chassis.setPose(p.x, p.y, p.theta * 180.0 / M_PI); // Replace chassis with your LemLib drive object and then uncomment
+      // chassis.setPose(p.x, p.y, p.theta); // Replace chassis with your LemLib drive object and then uncomment
 
-      pros::delay(10); // 10–20ms is fine
+      pros::delay(10); 
     }
   }, "MCL->Chassis Sync");
 }
