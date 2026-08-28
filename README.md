@@ -16,7 +16,9 @@ Developed by team [**70258A: Hivemind**](https://www.robotevents.com/teams/V5RC/
 
 ### WHy 250 particles?
 
-### Design Notes with the full derivation are available in our notebook: [**70258A: Hivemind Complete Robotics Notebook**]([https://www.robotevents.com/teams/V5RC/70258A](https://docs.google.com/document/d/1KD7MVZ-eUtZIvZQqOryz4Lbe8a_c98SCdaYAP6uw1Hc/edit?tab=t.r3y6zx7b96h3))
+wowza
+
+Design Notes with the full derivation are available in our [notebook](https://docs.google.com/document/d/1KD7MVZ-eUtZIvZQqOryz4Lbe8a_c98SCdaYAP6uw1Hc/edit?tab=t.r3y6zx7b96h3)
 
 ---
 
