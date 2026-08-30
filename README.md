@@ -10,13 +10,45 @@ Developed by team [**70258A: Hivemind**](https://www.robotevents.com/teams/V5RC/
 
 ### Motion Model
 
+Each update reads the vertical tracking wheel and the IMU. Wheel ticks convert to linear distance (```ds```) through the wheel circumference, and the IMU gives a wrapped heading delta (```dth```). Every particle is then advanced by ```ds``` along its own heading and rotated by ```dth```, with Gaussian noise added via a Box–Muller transform.
+
+The noise is motion-scaled rather than constant. Translation noise is ```SIGMA_TRANS_BASE_IN``` (0.10") plus ```SIGMA_TRANS_PER_IN``` (0.06") per inch traveled; heading noise is ```SIGMA_THETA_BASE_RAD``` plus ```SIGMA_THETA_PER_RAD``` per radian turned. A stationary robot barely spreads its cloud, while a long fast movement spreads it a lot. This matches how wheel slip and IMU drift actually accumulate — proportional to motion, not to time.
+
+Prediction runs every 10 ms. Particles pushed outside the field bounds are respawned near the cloud mean with a 6" spread rather than deleted, which keeps the particle count fixed and avoids reallocating.
+
 ### Measurement model
+
+Each distance sensor is registered with an (x, y, yaw) offset from the robot's center of rotation. For a given particle, the sensor's pose is transformed into field coordinates and a ray is cast to the field boundary to compute the distance that sensor should read if the robot were actually at that particle's pose. The residual between expected and measured is scored with a Gaussian (```SIGMA_DIST_IN``` = 1.25") and multiplied into the particle's weight.
+
+Because the VEX field is a known 144" × 144" rectangle, the raycast is a closed-form ray–rectangle intersection rather than a march through an occupancy grid. That makes it O(1) per sensor per particle with no map to store, which is what makes 250 particles at 10 ms feasible on a V5 brain. The tradeoff is that only the outer walls are modeled since field elements aren't in the map.
+
+Two gates protect the update. A hardware validity gate discards readings under 40 mm or over 2000 mm, outside the sensor's reliable range. An innovation gate discards any reading disagreeing with the expected wall distance by more than 10", which rejects most readings that hit a robot or field element instead of a wall.
+
+Measurement runs every second loop (~20 ms) rather than every loop, since it's far more expensive than prediction and the extra rate buys little.
 
 ### Resampling
 
-### WHy 250 particles?
+Resampling is gated on motion. It only runs if the robot has moved at least 0.75" or turned at least 3° since the last update. Without that gate, a stationary robot resamples repeatedly on near-identical weights and the cloud collapses to a handful of duplicated particles after which the filter can no longer represent alternative hypotheses.
 
-wowza
+The resample function is a a cumulative-sum with one random offset stepping through by 1/N: low-variance (systematic) resampling with O(N) time complexity.
+
+The published pose is the weighted mean of the cloud. Headings are averaged as sine and cosine components recombined with ```atan2``` rather than averaged directly, which avoids the wraparound error where 179° and −179° average to 0°.
+
+Confidence is derived from spatial spread rather than raw weights, mapping the cloud's standard deviation between 2" (tight, confident) and 18" (dispersed, likely lost) onto a 0–1 scale. Weights alone can look healthy while the cloud is dispersed, so spread is the more honest signal.
+
+### Why 250 particles?
+
+250 particles was a sweet spot found between accuracy and computational efficiency. As the field is only 12' x 12', iterating through 250 particles every 10ms is feasible for the V5 Brain. For local tracking, 250 particles is more than enough to handle minor variations, but since this ray-casting analytically against a rectangle instead of a grid, realistically it could be scaled up to 500 to 1000 particles if more accuracy was desired. Regardless, however, an odometry tracking wheel will be used as a motion model so when no valid readings come back, the filter runs prediction-only, which is dead reckoning
+
+### Where it fails:
+
+**Field symmetry**. The map is a square with only outer walls, so from the center, wall distances are close to identical under 90° rotations. The filter can converge confidently on a wrong hypothesis. Heading from the IMU is what disambiguates, which makes the IMU a hard dependency.
+
+**No global relocalization**. reset() spreads particles with a 2" standard deviation around the given pose, so the filter is a local tracker. A wrong starting pose, or getting shoved several feet by another robot, is unrecoverable:  there's no mechanism to redistribute particles across the field.
+
+**Dynamic obstacles**. The raycast assumes an empty rectangle. A sensor pointed at another robot or a mobile goal returns a short reading no particle predicts. The 10" innovation gate rejects the worst of these, but an obstacle producing an error just under the gate will corrupt weights.
+
+**Range limits near center**. Readings beyond 2000 mm (~78") are discarded, and the walls are 72" away from field center. Near the middle, few or no sensors return valid readings and the filter degrades to prediction-only.
 
 #### Design Notes with the full derivation are available in our [notebook](https://docs.google.com/document/d/1KD7MVZ-eUtZIvZQqOryz4Lbe8a_c98SCdaYAP6uw1Hc/edit?tab=t.r3y6zx7b96h3)
 
